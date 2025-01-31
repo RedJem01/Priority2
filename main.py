@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import threading
 
 from atlassian import Jira
 import boto3
@@ -9,52 +11,78 @@ from requests import HTTPError
 
 app = Flask(__name__)
 
-def process_message():
-    # loading variables from .env file
-    load_dotenv()
-    sqs = boto3.client('sqs', region_name=os.getenv('AWS_REGION'), aws_access_key_id=os.getenv('ACCESS_KEY'),
-                       aws_secret_access_key=os.getenv('SECRET_ACCESS_KEY'))
+# loading variables from .env file
+load_dotenv()
+AWS_REGION = os.getenv('AWS_REGION')
+ACCESS_KEY = os.getenv('ACCESS_KEY')
+SECRET_ACCESS_KEY = os.getenv('SECRET_ACCESS_KEY')
+P2_QUEUE = os.getenv('P2_QUEUE')
+JIRA_URL = os.getenv('JIRA_URL')
+JIRA_EMAIL = os.getenv('JIRA_EMAIL')
+JIRA_TOKEN = os.getenv('JIRA_TOKEN')
+JIRA_PROJECT_KEY = os.getenv('JIRA_PROJECT_KEY')
 
-    response = sqs.receive_message(QueueUrl=os.getenv('P2_QUEUE'), MessageAttributeNames=['All'],
+logger = logging.getLogger(__name__)
+
+def process_message():
+    sqs = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY,
+                       aws_secret_access_key=SECRET_ACCESS_KEY)
+
+    response = sqs.receive_message(QueueUrl=P2_QUEUE, MessageAttributeNames=['All'],
                                    MaxNumberOfMessages=1, WaitTimeSeconds=20)
+
+    logger.info("Message received from queue with ID" + response.get('MessageId'))
 
     messages = response.get('Messages')
     if messages is not None:
         message = messages[0]
         body = json.loads(message['Body'])
-        print(body)
+        if body["title"] and body["description"]:
 
-        jira = Jira(
-            url=os.getenv('JIRA_URL'),
-            username=os.getenv('JIRA_EMAIL'),
-            password=os.getenv('JIRA_TOKEN'),
-            cloud=True
-        )
+            jira = Jira(
+                url=JIRA_URL,
+                username=JIRA_EMAIL,
+                password=JIRA_TOKEN,
+                cloud=True
+            )
 
-        try:
-            print("Attempting to create issue")
-            jira.create_issue(fields={
-                'project': {'key': os.getenv('JIRA_PROJECT_KEY')},
-                'issuetype': {
-                    "name": "Task"
-                },
-                 'summary': body["title"],
-                 'description': body["description"],
-            })
-            print("Issue created")
-        except HTTPError as e:
-            print(e.response.text)
+            try:
+                logger.info("Attempting to create issue")
+                jira.create_issue(fields={
+                    'project': {'key': JIRA_PROJECT_KEY},
+                    'issuetype': {
+                        "name": "Task"
+                    },
+                     'summary': body["title"],
+                     'description': body["description"],
+                })
+                logger.info("Jira task created, payload" + json.dumps({
+                    'project': {'key': JIRA_PROJECT_KEY},
+                    'issuetype': {
+                        "name": "Task"
+                    },
+                     'summary': body["title"],
+                     'description': body["description"],
+                }))
+            except HTTPError as e:
+                print(e.response.text)
+
+        else:
+            logger.info("Either the title or description or both are missing from the SQS message")
 
 
         sqs.delete_message(
-            QueueUrl=os.getenv('P2_QUEUE'),
+            QueueUrl=P2_QUEUE,
             ReceiptHandle=message['ReceiptHandle']
         )
+        logger.info("Message deleted from queue with ID" + response.get('MessageId'))
+    else:
+        logger.info("No messages in queue")
 
 if __name__ == '__main__':
-    process_message()
+    threading.Thread(target=process_message, daemon=True).start()
     app.run()
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return 'Service is all good', 200
+    return {'OK', 200}
