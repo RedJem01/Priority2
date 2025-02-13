@@ -23,6 +23,7 @@ JIRA_TOKEN = os.getenv('JIRA_TOKEN')
 JIRA_PROJECT_KEY = os.getenv('JIRA_PROJECT_KEY')
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def process_message():
     sqs = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY,
@@ -31,51 +32,52 @@ def process_message():
     response = sqs.receive_message(QueueUrl=P2_QUEUE, MessageAttributeNames=['All'],
                                    MaxNumberOfMessages=1, WaitTimeSeconds=20)
 
-    logger.info("Message received from queue with ID" + response.get('MessageId'))
-
     messages = response.get('Messages')
     if messages is not None:
         message = messages[0]
+        logger.info("Message received from queue with ID" + json.dumps(response.get('MessageId')))
         body = json.loads(message['Body'])
-        if body["title"] and body["description"]:
+        if "title" in body and "description" in body:
+            if body["title"] and body["description"]:
 
-            jira = Jira(
-                url=JIRA_URL,
-                username=JIRA_EMAIL,
-                password=JIRA_TOKEN,
-                cloud=True
-            )
+                jira = Jira(
+                    url=JIRA_URL,
+                    username=JIRA_EMAIL,
+                    password=JIRA_TOKEN,
+                    cloud=True
+                )
 
-            try:
-                logger.info("Attempting to create issue")
-                jira.create_issue(fields={
-                    'project': {'key': JIRA_PROJECT_KEY},
-                    'issuetype': {
-                        "name": "Task"
-                    },
-                     'summary': body["title"],
-                     'description': body["description"],
-                })
-                logger.info("Jira task created, payload" + json.dumps({
-                    'project': {'key': JIRA_PROJECT_KEY},
-                    'issuetype': {
-                        "name": "Task"
-                    },
-                     'summary': body["title"],
-                     'description': body["description"],
-                }))
-            except HTTPError as e:
-                print(e.response.text)
-
+                try:
+                    logger.info("Attempting to create issue")
+                    jira.create_issue(fields={
+                        'project': {'key': JIRA_PROJECT_KEY},
+                        'issuetype': {
+                            "name": "Task"
+                        },
+                         'summary': body["title"],
+                         'description': body["description"],
+                    })
+                    logger.info("Jira task created, payload" + json.dumps({
+                        'project': {'key': JIRA_PROJECT_KEY},
+                        'issuetype': {
+                            "name": "Task"
+                        },
+                         'summary': body["title"],
+                         'description': body["description"],
+                    }))
+                except HTTPError as e:
+                    print(e.response.text)
+            else:
+                logger.error("Either the title or description or both are empty")
         else:
-            logger.info("Either the title or description or both are missing from the SQS message")
+            logger.error("Either the title or description or both are missing from the SQS message")
 
 
         sqs.delete_message(
             QueueUrl=P2_QUEUE,
             ReceiptHandle=message['ReceiptHandle']
         )
-        logger.info("Message deleted from queue with ID" + response.get('MessageId'))
+        logger.info("Message deleted from queue with ID" + json.dumps(response.get('MessageId')))
     else:
         logger.info("No messages in queue")
 
