@@ -87,4 +87,4 @@ if __name__ == '__main__':
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return {'OK', 200}
+    return 'OK', 200
