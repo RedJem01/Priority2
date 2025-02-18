@@ -1,4 +1,4 @@
-FROM python:latest
+FROM python:3.12-slim
 WORKDIR /Priority2
 COPY . /Priority2
 RUN pip3 install -r requirements.txt
@@ -12,4 +12,4 @@ ENV SECRET_ACCESS_KEY=''
 ENV AWS_REGION=''
 ENV P2_QUEUE=''
 EXPOSE 8000
-CMD ["flask", "run", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "--bind","0.0.0.0:8000", "main:app"]

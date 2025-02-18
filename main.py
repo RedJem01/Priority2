@@ -65,8 +65,9 @@ def process_message():
                          'summary': body["title"],
                          'description': body["description"],
                     }))
+                    logger.info("Issue created")
                 except HTTPError as e:
-                    print(e.response.text)
+                    logger.error(e.response.text)
             else:
                 logger.error("Either the title or description or both are empty")
         else:
@@ -81,10 +82,21 @@ def process_message():
     else:
         logger.info("No messages in queue")
 
-if __name__ == '__main__':
-    threading.Thread(target=process_message, daemon=True).start()
-    app.run()
+def background_thread():
+    thread = threading.Thread(target=process_message, daemon=True)
+    thread.start()
+    return thread
 
-@app.route('/health', methods=['GET'])
+bg_thread = background_thread()
+
+if __name__ == '__main__':
+    try:
+        app.run(host="0.0.0.0")
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+        stop_flag = True
+        bg_thread.join()
+
+@app.route('/', methods=['GET'])
 def health_check():
     return 'OK', 200
