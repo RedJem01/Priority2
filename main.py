@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import threading
 
@@ -7,7 +6,7 @@ from atlassian import Jira
 import boto3
 from flask import Flask
 from dotenv import load_dotenv
-from requests import HTTPError
+from loguru import logger
 
 app = Flask(__name__)
 
@@ -22,33 +21,42 @@ JIRA_EMAIL = os.getenv('JIRA_EMAIL')
 JIRA_TOKEN = os.getenv('JIRA_TOKEN')
 JIRA_PROJECT_KEY = os.getenv('JIRA_PROJECT_KEY')
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
 def process_message():
-    sqs = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY,
-                       aws_secret_access_key=SECRET_ACCESS_KEY)
+    try:
+        #Set SQS client
+        sqs = boto3.client('sqs', region_name=AWS_REGION, aws_access_key_id=ACCESS_KEY,
+                           aws_secret_access_key=SECRET_ACCESS_KEY)
 
-    response = sqs.receive_message(QueueUrl=P2_QUEUE, MessageAttributeNames=['All'],
-                                   MaxNumberOfMessages=1, WaitTimeSeconds=20)
+        #Receive message
+        response = sqs.receive_message(QueueUrl=P2_QUEUE, MessageAttributeNames=['All'],
+                                       MaxNumberOfMessages=1, WaitTimeSeconds=20)
 
-    messages = response.get('Messages')
-    if messages is not None:
-        message = messages[0]
-        logger.info("Message received from queue with ID" + json.dumps(response.get('MessageId')))
-        body = json.loads(message['Body'])
-        if "title" in body and "description" in body:
-            if body["title"] and body["description"]:
+        messages = response.get('Messages')
 
-                jira = Jira(
-                    url=JIRA_URL,
-                    username=JIRA_EMAIL,
-                    password=JIRA_TOKEN,
-                    cloud=True
-                )
+        #If there are messages in the queue
+        if messages is not None:
+            #Get first message
+            message = messages[0]
+            logger.info(f"Message received from queue with ID: {message["MessageId"]}")
 
-                try:
+            #Get message body
+            body = json.loads(message['Body'])
+
+            #Validate body
+            if "title" in body and "description" in body:
+                if body["title"] and body["description"]:
+
+                    #Set JIRA client
+                    jira = Jira(
+                        url=JIRA_URL,
+                        username=JIRA_EMAIL,
+                        password=JIRA_TOKEN,
+                        cloud=True
+                    )
+
+                    #Create issue
                     logger.info("Attempting to create issue")
+
                     jira.create_issue(fields={
                         'project': {'key': JIRA_PROJECT_KEY},
                         'issuetype': {
@@ -57,30 +65,31 @@ def process_message():
                          'summary': body["title"],
                          'description': body["description"],
                     })
-                    logger.info("Jira task created, payload" + json.dumps({
+                    logger.info(f"Jira task created, payload: {json.dumps({
                         'project': {'key': JIRA_PROJECT_KEY},
                         'issuetype': {
                             "name": "Task"
                         },
                          'summary': body["title"],
                          'description': body["description"],
-                    }))
-                    logger.info("Issue created")
-                except HTTPError as e:
-                    logger.error(e.response.text)
+                    })}")
+                #If body is incorrect display errors
+                else:
+                    logger.error("Either the title or description or both are empty")
             else:
-                logger.error("Either the title or description or both are empty")
+                logger.error("Either the title or description or both are missing from the SQS message")
+
+            #Delete message from queue
+            sqs.delete_message(
+                QueueUrl=P2_QUEUE,
+                ReceiptHandle=message['ReceiptHandle']
+            )
+            logger.info(f"Message deleted from queue with ID: {message["MessageId"]}")
+        #If no messages then display that
         else:
-            logger.error("Either the title or description or both are missing from the SQS message")
-
-
-        sqs.delete_message(
-            QueueUrl=P2_QUEUE,
-            ReceiptHandle=message['ReceiptHandle']
-        )
-        logger.info("Message deleted from queue with ID" + json.dumps(response.get('MessageId')))
-    else:
-        logger.info("No messages in queue")
+            logger.info("No messages in queue")
+    except Exception as e:
+        logger.error(f"An error occurred {e}")
 
 def background_thread():
     thread = threading.Thread(target=process_message, daemon=True)
