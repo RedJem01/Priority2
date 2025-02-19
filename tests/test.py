@@ -6,6 +6,16 @@ class FakeJira:
     def create_issue(self, fields):
         return "Sent"
 
+def set_environment_variables(queue_url):
+    main.P2_QUEUE = queue_url
+    main.AWS_REGION = 'eu-west-2'
+    main.ACCESS_KEY = 'testing'
+    main.SECRET_ACCESS_KEY = 'testing'
+    main.JIRA_URL = 'testing'
+    main.JIRA_EMAIL = 'testing'
+    main.JIRA_TOKEN = 'testing'
+    main.JIRA_PROJECT_KEY = 'testing'
+
 @patch('main.Jira')
 def test_process_message(jira_mock, sqs_client):
     queue = sqs_client.create_queue(QueueName='queue')
@@ -13,8 +23,7 @@ def test_process_message(jira_mock, sqs_client):
     queue_url = queue['QueueUrl']
 
 
-    # override function global URL variable
-    main.P2_QUEUE = queue_url
+    set_environment_variables(queue_url)
 
     jira_mock.return_value = FakeJira()
 
@@ -36,8 +45,7 @@ def test_process_message_wrong_data(jira_mock, sqs_client):
     queue_url = queue['QueueUrl']
 
 
-    # override function global URL variable
-    main.P2_QUEUE = queue_url
+    set_environment_variables(queue_url)
 
     jira_mock.return_value = FakeJira()
 

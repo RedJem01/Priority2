@@ -100,7 +100,7 @@ def process_message_outer():
             logger.error(f"An error occurred: {e}")
 
 def background_thread():
-    thread = threading.Thread(target=process_message, daemon=True)
+    thread = threading.Thread(target=process_message_outer, daemon=True)
     thread.start()
     return thread
 
