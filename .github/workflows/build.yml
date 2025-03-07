@@ -4,8 +4,8 @@ on:
     branches:
       - main
 jobs:
-  Build:
-    name: Build
+  build:
+    name: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
